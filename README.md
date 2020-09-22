@@ -6,6 +6,23 @@ See [milestones](https://github.com/jechasteen/patina/milestones)
 
 ***
 
+## What it does right now
+
+Version 0.1 is literally just connecting to X and showing an xterm window.
+
+## Building
+
+You can build and run an instance with a single command
+
+```sh
+./test debug
+# or
+./test release
+```
+
+The script will handle building either if they haven't been built yet.
+It does not handle cleaning yet, so just issue `cargo clean` directly.
+
 ## Design goals
 
 1. Async
