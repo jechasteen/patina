@@ -13,6 +13,10 @@ use xcb::ffi::{
     xproto,
     base,
 };
+use std::fs::{File, remove_file};
+use std::path::Path;
+
+const LOCK_FILE: &str = "/tmp/patina.lock";
 
 const XCB_MOVE: u16 = (xproto::XCB_CONFIG_WINDOW_X | xproto::XCB_CONFIG_WINDOW_Y) as u16;
 const XCB_RESIZE: u16 = (xproto::XCB_CONFIG_WINDOW_WIDTH | xproto::XCB_CONFIG_WINDOW_HEIGHT) as u16;
@@ -53,16 +57,30 @@ struct Client {
     id: u32
 }
 
-pub struct Instance {
+pub struct Patina {
     connection: Connection,
     screen: Screen,
     clients: Vec<Client>
 }
 
-impl Instance {
+impl Drop for Patina {
+    fn drop(&mut self) {
+        match remove_file(LOCK_FILE) {
+            Ok(()) => println!("Lock file deleted."),
+            Err(e) => println!("Failed to delete lock file!\n{}", e)
+        }
+    }
+}
+
+impl Patina {
     pub fn new() -> Self {
+        if Path::new(LOCK_FILE).exists() {
+            panic!("Another instance of patina is already running!");
+        }
+        File::create(LOCK_FILE).expect("Failed to create lock file!");
+
         if let Ok((conn, _scr)) = Connection::connect(None) {
-            let mut inst = Self {
+            let mut inst = Patina {
                 connection: conn,
                 screen: Screen { 
                     handle: std::ptr::null_mut(),
@@ -159,7 +177,7 @@ impl Instance {
         xproto::xcb_map_window(self.conn(), event.window);
 
         xproto::xcb_configure_window(self.conn(), event.window, xproto::XCB_CONFIG_WINDOW_BORDER_WIDTH as u16, &5);
-        Instance::move_resize(self.conn(), event.window, Rect { x: 10, y: 10, width: 500, height: 500 });
+        Patina::move_resize(self.conn(), event.window, Rect { x: 10, y: 10, width: 500, height: 500 });
         println!("Mapped window {}", event.window);
         self.flush();
     }
