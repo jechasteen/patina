@@ -6,7 +6,8 @@ mod tests {
     }
 }
 
-use std::os::raw::{c_uint};
+//use std::os::raw::{c_uint};
+use xcb;
 use xcb::Connection;
 use xcb::ffi::{
     xproto,
@@ -18,41 +19,82 @@ const XCB_RESIZE: u16 = (xproto::XCB_CONFIG_WINDOW_WIDTH | xproto::XCB_CONFIG_WI
 const XCB_MOVE_RESIZE: u16 = XCB_MOVE | XCB_RESIZE;
 
 struct Screen {
-    handle: i32,
+    handle: *mut xproto::xcb_screen_t,
     width: u16,
     height: u16,
+}
+
+impl Screen {
+    fn data(&self) -> &xproto::xcb_screen_t {
+        unsafe {
+            if !self.handle.is_null() {
+                &*self.handle
+            } else {
+                panic!("Attempted to derefence null Screen struct!")
+            }
+        }
+    }
+}
+
+struct Rect {
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32
+}
+
+impl Rect {
+    pub fn as_ptr(&self) -> *const u32 {
+        [self.x, self.y, self.width, self.height].as_ptr()
+    }
+}
+
+struct Client {
+    id: u32
 }
 
 pub struct Instance {
     connection: Connection,
     screen: Screen,
+    clients: Vec<Client>
 }
 
 impl Instance {
     pub fn new() -> Self {
-        if let Ok((conn, scr)) = Connection::connect(None) {
-            Self {
+        if let Ok((conn, _scr)) = Connection::connect(None) {
+            let mut inst = Self {
                 connection: conn,
-                screen: Screen { handle: scr, width: 0, height: 0 },
+                screen: Screen { 
+                    handle: std::ptr::null_mut(),
+                    width: 0,
+                    height: 0
+                },
+                clients: Vec::<Client>::new()
+            };
+            unsafe {
+                inst.screen.handle = xproto::xcb_setup_roots_iterator(base::xcb_get_setup(inst.connection.get_raw_conn())).data;
             }
+            inst
         } else {
             panic!("Failed to initialize X instance! Check your DISPLAY variable.");
         }
-        
     }
 
     pub fn setup(&mut self) -> std::io::Result<()> {
-        let setup = self.connection.get_setup();
-        let screen = setup.roots().nth(self.screen.handle as usize).unwrap();
-        self.screen.width = screen.width_in_pixels();
-        self.screen.height = screen.height_in_pixels();
+        self.screen.width = self.screen.data().width_in_pixels;
+        self.screen.height = self.screen.data().height_in_pixels;
         // init client tree
         let mask = xproto::XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY | xproto::XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT;
         unsafe {
-            xproto::xcb_change_window_attributes(self.conn(), screen.root(), xproto::XCB_CW_EVENT_MASK, &mask);
+            xproto::xcb_change_window_attributes(
+                self.conn(), 
+                (*self.screen.handle).root,
+                xproto::XCB_CW_EVENT_MASK,
+                &mask
+            );
             self.flush();
         }
-
+        
         Ok(())
     }
 
@@ -89,9 +131,9 @@ impl Instance {
                         println!("XCB_MAP_REQUEST");
                         let map_event;
                         unsafe {
-                            map_event = *std::mem::transmute::<*mut base::xcb_generic_event_t, *mut xproto::xcb_map_request_event_t>(event_ptr)
-                        };
-                        self.map_request(map_event);
+                            map_event = *std::mem::transmute::<*mut base::xcb_generic_event_t, *mut xproto::xcb_map_request_event_t>(event_ptr);
+                            self.map_request(map_event);
+                        }
                         self.flush();
                     },
                     xproto::XCB_DESTROY_NOTIFY => {
@@ -103,15 +145,22 @@ impl Instance {
         }
     }
 
-    fn map_request(&mut self, event: xproto::xcb_map_request_event_t) {
-        println!("Map Event.");
-        //create window
+    unsafe fn move_resize(conn: *mut base::xcb_connection_t, win: xproto::xcb_window_t, rect: Rect) {
+        xproto::xcb_configure_window(conn, win, XCB_MOVE_RESIZE, rect.as_ptr());
+    }
+
+    fn get_id(&self) -> u32 {
         unsafe {
-            xproto::xcb_map_window(self.conn(), event.window);
-            xproto::xcb_configure_window(self.conn(), event.window, xproto::XCB_CONFIG_WINDOW_BORDER_WIDTH as u16, &5);
-            let frame: [c_uint; 4] = [10, 10, 200, 200];
-            xproto::xcb_configure_window(self.conn(), event.window, XCB_MOVE_RESIZE, frame.as_ptr());
+            base::xcb_generate_id(self.conn())
         }
+    }
+
+    unsafe fn map_request(&mut self, event: xproto::xcb_map_request_event_t) {
+        xproto::xcb_map_window(self.conn(), event.window);
+
+        xproto::xcb_configure_window(self.conn(), event.window, xproto::XCB_CONFIG_WINDOW_BORDER_WIDTH as u16, &5);
+        Instance::move_resize(self.conn(), event.window, Rect { x: 10, y: 10, width: 500, height: 500 });
         println!("Mapped window {}", event.window);
+        self.flush();
     }
 }
