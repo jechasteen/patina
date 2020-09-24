@@ -21,24 +21,6 @@ const XCB_MOVE: u16 = (xproto::XCB_CONFIG_WINDOW_X | xproto::XCB_CONFIG_WINDOW_Y
 const XCB_RESIZE: u16 = (xproto::XCB_CONFIG_WINDOW_WIDTH | xproto::XCB_CONFIG_WINDOW_HEIGHT) as u16;
 const XCB_MOVE_RESIZE: u16 = XCB_MOVE | XCB_RESIZE;
 
-struct Screen {
-    handle: *mut xproto::xcb_screen_t,
-    width: u16,
-    height: u16,
-}
-
-impl Screen {
-    fn data(&self) -> &xproto::xcb_screen_t {
-        unsafe {
-            if !self.handle.is_null() {
-                &*self.handle
-            } else {
-                panic!("Attempted to derefence null Screen struct!")
-            }
-        }
-    }
-}
-
 /// Creates a rect with different types for (x, y) and (width, height)
 #[derive(Debug)]
 struct Rect2T<T1, T2> {
@@ -68,8 +50,7 @@ struct Client {
 }
 
 pub struct Patina {
-    connection: Connection,
-    screen: Screen,
+    handle: drw::XConnection,
     clients: Vec<Client>,
 }
 
@@ -91,19 +72,19 @@ impl Patina {
 
         if let Ok((conn, _scr)) = Connection::connect(None) {
             let mut inst = Patina {
-                connection: conn,
-                screen: Screen {
-                    handle: std::ptr::null_mut(),
-                    width: 0,
-                    height: 0,
+                handle: drw::XConnection {
+                    connection: conn,
+                    screen: drw::Screen {
+                        handle: std::ptr::null_mut(),
+                        width: 0,
+                        height: 0,
+                    },
                 },
                 clients: Vec::<Client>::new(),
             };
             unsafe {
-                inst.screen.handle = xproto::xcb_setup_roots_iterator(base::xcb_get_setup(
-                    inst.connection.get_raw_conn(),
-                ))
-                .data;
+                inst.handle.screen.handle =
+                    xproto::xcb_setup_roots_iterator(base::xcb_get_setup(inst.handle.conn())).data;
             }
             inst
         } else {
@@ -112,15 +93,15 @@ impl Patina {
     }
 
     pub fn setup(&mut self) -> std::io::Result<()> {
-        self.screen.width = self.screen.data().width_in_pixels;
-        self.screen.height = self.screen.data().height_in_pixels;
+        self.handle.screen.width = self.handle.screen.data().width_in_pixels;
+        self.handle.screen.height = self.handle.screen.data().height_in_pixels;
         // init client tree
         let mask = xproto::XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY
             | xproto::XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT;
         unsafe {
             xproto::xcb_change_window_attributes(
                 self.conn(),
-                (*self.screen.handle).root,
+                (*self.handle.screen.handle).root,
                 xproto::XCB_CW_EVENT_MASK,
                 &mask,
             );
@@ -141,7 +122,7 @@ impl Patina {
     }
 
     fn conn(&self) -> *mut base::xcb_connection_t {
-        self.connection.get_raw_conn()
+        self.handle.conn()
     }
 
     fn test_win(&self) {
@@ -159,16 +140,16 @@ impl Patina {
                 self.conn(),
                 0,
                 win,
-                self.screen.data().root,
+                self.handle.screen.data().root,
                 rect.x,
                 rect.y,
                 rect.height,
                 rect.width,
                 2,
                 xproto::XCB_WINDOW_CLASS_INPUT_OUTPUT as u16,
-                self.screen.data().root_visual,
+                self.handle.screen.data().root_visual,
                 xproto::XCB_CW_BACK_PIXEL,
-                &self.screen.data().white_pixel,
+                &self.handle.screen.data().white_pixel,
             );
             xproto::xcb_map_window(self.conn(), win);
         }
