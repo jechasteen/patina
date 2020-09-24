@@ -10,6 +10,13 @@ See [milestones](https://github.com/jechasteen/patina/milestones)
 
 Version 0.1 is literally just connecting to X and showing an xterm window.
 
+## Dependencies
+
+### Ubuntu
+
+* libglib2.0-dev
+* libcairo2-dev
+
 ## Building
 
 You can build and run an instance with a single command

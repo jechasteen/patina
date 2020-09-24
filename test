@@ -1,24 +1,61 @@
 #!/bin/env bash
 set -e
 
-if [ -z ${1+x} ]; then
-    echo "Build mode argument is required."
+usage () {
     echo "    ./test [build_mode]"
     echo "            debug"
     echo "            release"
-    exit 1
+    exit 1 
+}
+
+if [ -z ${1+x} ]; then
+    echo "Build mode argument is required."
+    usage
 fi
 
+clean () {
+    set +e
+    echo "Cleaning up..."
+    ls $LOCK &> /dev/null
+    if [ $? == 0 ]; then
+        echo -ne "Removing lock file..."
+        rm $LOCK
+        if [ $? ]; then
+            echo -e " Success"
+        else
+            echo -e " Failed!"
+        fi 
+    fi
+    echo "Killing any patina processes..."
+    killall patina &> /dev/null
+    if [ ! $? ]; then
+        echo "Failed to kill patina process(es)"
+        exit 1
+    else
+        echo "Success"
+    fi
+    echo "Done!"
+    exit 0
+}
+
+LOCK="/tmp/patina.lock"
 EXE="target/$1/patina"
 
 if [ "$1" == "release" ]; then
     cargo build --release
-else
+elif [ "$1" == "clean" ]; then
+    clean
+elif [ "$1" == "debug" ]; then
     cargo build
+else
+    echo "\"$1\" command not found"
+    usage
+    exit 1
 fi
 
 Xephyr :2 -ac -br -noreset -screen 800x600 &
+XPID=$!
 sleep 0.25
 DISPLAY=:2.0
 $EXE 2>&1 &
-xterm &
+# xterm &
